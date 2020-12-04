@@ -1,0 +1,199 @@
+---
+title: "lab_10_bailey"
+author: "Allison Bailey"
+date: "12/2/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+.
+```{r}
+# install packages
+library(tidyverse)
+library(gganimate)
+library(magick)
+library(janitor)
+library(corrplot)
+library(beepr)
+library(stargazer)
+library(praise)
+library(transformr)
+library(sf)
+library(here)
+```
+
+### Objectives
+
+- Multiple linear reression
+- Check assumptions w/diagnositic plots
+- Make predictons for MLR with new data
+- Intro to maps in R & gganimate
+
+### Multiple Linear Regression
+
+
+```{r}
+
+homes <- read_csv("slo_homes.csv")
+
+homes_clean <- homes %>%
+  clean_names() %>%
+  filter(city %in% c("San Luis Obispo", "Atascadero", "Arroyo Grande"))
+```
+
+Look at correlations between numeric variables (checking to see if we think that collinearity might be a concern)
+```{r}
+homes_cor <- cor(homes_clean[2:6])
+
+homes_cor
+```
+
+Make a correlogram (plot of correlations)
+```{r}
+corrplot(homes_cor)
+beep(20)
+```
+
+Let's start with a complete model:
+```{r}
+home_lm <- lm(price ~ city + bedrooms + bathrooms + sq_ft + status, data = homes_clean)
+
+home_lm
+
+# P = 184130.9 - 167396(Atascadero) + 31018(SLO) - 161645(bedrooms)
+```
+If everything else about the home is the same, then we would expect a home in Atascadero to sell for $167,396 dollars LESS than a home in Arroyo Grande, on average. 
+
+```{r}
+home_lm2 <- lm(price ~ city + sq_ft + status, data = homes_clean)
+home_lm2
+```
+
+AIC values: 
+```{r}
+AIC(home_lm)
+AIC(home_lm2)
+```
+
+```{r}
+summary(home_lm)
+summary(home_lm2)
+```
+
+Now I'm going to create a nice regression table with 'stargazer' :
+```{r, results = 'asis'}
+stargazer(home_lm, home_lm2, type = "html")
+
+```
+
+Now let's check out the diagnostic plots to see if our assumptions (normality of residulas and homoscedasticity) are satisfied or if we're really concerned.
+
+- Linearly related variables
+- Residuals normally distruted
+- Variances constant
+- Residulas iid (independent, uncorrelated)
+
+```{r}
+plot(home_lm2)
+```
+Make some home price predictions with new data
+
+We're going to be using that simplified model (home_lm2)
+
+- First, create some new data that contains city, sq_ft, status
+- Give that new data to home_lm2 to make new predictions
+- Plot it
+
+```{r}
+
+new_df <- data.frame(city = rep(c("San Luis Obispo", "Arroyo Grande", "Atascadero"), each = 10), 
+                     sq_ft = rep(seq(0, 5000, length = 10)),
+                     status = "Regular")
+new_df
+```
+
+Use the 'predict()' to make new predicitons using home_lm2:
+```{r}
+predict_df <- predict(home_lm2, newdata = new_df)
+predict_df
+
+# Bind that together with the new_df:
+full_df <- data.frame(new_df, predict_df)
+
+full_df
+```
+Make a graph with the actuall data, and what our model actually predicts:
+```{r}
+ggplot() +
+  geom_point(data = homes_clean,
+             aes(x = sq_ft, y = price, color = city, pch = city)) +
+  geom_line(data = full_df,
+            aes(x = sq_ft, y = predict_df, color = city)) +
+  theme_light()
+
+ggplot(data = homes_clean, aes(x= sq_ft, y = price)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~city)
+```
+
+### Intro to the sf packages
+
+'sf' = simple features
+
+Sticky geometries! Which means we can just work with attributes like a normal data frame for wrangling, viz, etc. 
+
+Get CA dams data:
+
+```{r}
+dams <- read_csv("ca_dams.csv") %>%
+  clean_names() %>%
+  drop_na(latitude) %>%
+  drop_na(longitude) %>%
+  drop_na(year_completed)
+
+
+```
+
+Convert lat/lon numbers to simple features data (sf)
+```{r}
+dams_sf <- st_as_sf(dams, coords = c("longitude", "latitude"))
+st_crs(dams_sf) <- 4326
+
+plot(dams_sf)
+```
+
+Now, lets read n the shapefile data for the state of CA (outer boundary TIGER shapefile data)
+
+```{r}
+ca_border <- read_sf(here::here("ca_state_border"), layer = "CA_State_TIGER2016")
+
+plot(ca_border)
+```
+
+Now, plot dams n CA over the top of the CA outline:
+
+```{r}
+ggplot() +
+  geom_sf(data = ca_border, fill = "red") +
+  geom_sf(data = dams_sf, aes(size = dam_height, color = county), alpha = 0.5, show.legend = FALSE) +
+  theme_minimal()
+
+
+
+
+```
+
+Making an animated plot:
+```{r, include = FALSE, echo=FALSE}
+ggplot() +
+  geom_sf(data = ca_border) +
+  geom_sf(data = dams_sf, size = 1.5, color = "gray50") +
+  theme_void() +
+  labs(title = 'Year: {round(frame_time, 0)}') +
+  transition_time(year_completed) +
+  shadow_mark(alpha = 1) 
+```
+
