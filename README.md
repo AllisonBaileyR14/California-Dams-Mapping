@@ -1,5 +1,3 @@
-# ESM 206 Fall 2019
-## Lab Week 10 Materials
 
 ### Objectives
 
